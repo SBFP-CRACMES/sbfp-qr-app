@@ -4,10 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Home Grown School-Based Feeding Program (SF8)</title>
+  
+  <!-- PWA & Mobile Web App Meta Tags -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SBFP SF8">
+  <meta name="theme-color" content="#1e3a8a">
+
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
   <style>
     :root {
       --primary-gradient: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
@@ -43,7 +52,13 @@
     <div class="mb-3">
       <input type="password" id="inputPin" class="form-control form-control-lg text-center fw-bold" placeholder="••••" maxlength="8">
     </div>
-    <button class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow-sm" style="border-radius: 12px;" onclick="attemptLogin()">Unlock Portal</button>
+    <button class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow-sm mb-2" style="border-radius: 12px;" onclick="attemptLogin()">Unlock Portal</button>
+    
+    <!-- Install/Download App Button on Login Screen -->
+    <button class="btn btn-outline-secondary btn-sm w-100 fw-bold py-2 mt-2" style="border-radius: 10px;" onclick="triggerAppInstall()">
+      <i class="fa-solid fa-download me-1"></i> Install / Download App Icon
+    </button>
+    
     <div id="loginErrorMsg" class="text-danger fw-bold mt-3 small"></div>
   </div>
 </div>
@@ -63,7 +78,8 @@
           <div class="text-white-50 small mt-1">Project FoodTrace: Attendance Monitoring System (AMS)</div>
         </div>
       </div>
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-warning btn-sm fw-bold text-dark shadow-sm px-3" onclick="triggerAppInstall()"><i class="fa-solid fa-mobile-screen-button me-1"></i> Install App</button>
         <button class="btn btn-light btn-sm fw-bold text-dark shadow-sm px-3" onclick="toggleFullScreen()"><i class="fa-solid fa-expand me-1"></i> Full Screen</button>
         <button class="btn btn-outline-light btn-sm fw-bold px-3" onclick="logout()"><i class="fa-solid fa-right-from-bracket me-1"></i> Logout</button>
       </div>
@@ -144,13 +160,19 @@
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold small">Grade Level</label>
             <select class="form-select" name="grade" id="addPupilGrade" onchange="updateFormSections('addPupilGrade', 'addPupilSection')" required>
-              <option value="Kindergarten">Kindergarten</option><option value="Grade 1">Grade 1</option><option value="Grade 2">Grade 2</option><option value="Grade 3">Grade 3</option><option value="Grade 4">Grade 4</option><option value="Grade 5">Grade 5</option><option value="Grade 6">Grade 6</option>
+              <option value="Kindergarten">Kindergarten</option>
+              <option value="Grade 1">Grade 1</option>
+              <option value="Grade 2">Grade 2</option>
+              <option value="Grade 3">Grade 3</option>
+              <option value="Grade 4">Grade 4</option>
+              <option value="Grade 5">Grade 5</option>
+              <option value="Grade 6">Grade 6</option>
             </select>
           </div>
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold small">Section</label>
             <select class="form-select" name="section" id="addPupilSection" required>
-              <!-- Options populated via JS -->
+              <!-- Populated via JS -->
             </select>
           </div>
           <div class="col-md-3 mb-3">
@@ -328,6 +350,108 @@
   var currentPupilId = null;
   var bmiChart, attChart;
   var dashInterval = null;
+  var deferredInstallPrompt = null;
+
+  // Embedded Application Vector Icon (SVG)
+  const appIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+    <defs>
+      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#1e3a8a"/>
+        <stop offset="100%" stop-color="#2563eb"/>
+      </linearGradient>
+      <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#10b981"/>
+        <stop offset="100%" stop-color="#059669"/>
+      </linearGradient>
+    </defs>
+    <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+    <circle cx="256" cy="256" r="210" fill="none" stroke="#ffffff" stroke-width="12" stroke-dasharray="16 12" opacity="0.3"/>
+    <path d="M 120 340 C 120 400, 392 400, 392 340 L 370 260 L 142 260 Z" fill="#ffffff" opacity="0.95"/>
+    <path d="M 110 260 L 402 260 C 412 260, 412 240, 402 240 L 110 240 C 100 240, 100 260, 110 260 Z" fill="#3b82f6"/>
+    <path d="M 256 240 C 256 160, 160 130, 140 180 C 180 250, 256 240, 256 240 Z" fill="url(#leafGrad)"/>
+    <path d="M 256 240 C 256 160, 352 130, 372 180 C 332 250, 256 240, 256 240 Z" fill="url(#leafGrad)"/>
+    <path d="M 256 245 L 256 140" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+    <rect x="206" y="310" width="100" height="8" rx="4" fill="#2563eb" opacity="0.6"/>
+    <text x="256" y="445" font-family="system-ui, sans-serif" font-size="42" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="4">SF8 AMS</text>
+  </svg>`;
+
+  // Dynamic PWA Manifest & App Icon Setup
+  function initDynamicPwaAssets() {
+    try {
+      const svgBlob = new Blob([appIconSvg], { type: 'image/svg+xml' });
+      const iconUrl = URL.createObjectURL(svgBlob);
+
+      // Set Apple Touch Icon & Favicon
+      let appleIcon = document.querySelector("link[rel='apple-touch-icon']");
+      if (!appleIcon) {
+        appleIcon = document.createElement('link');
+        appleIcon.rel = 'apple-touch-icon';
+        document.head.appendChild(appleIcon);
+      }
+      appleIcon.href = iconUrl;
+
+      let favicon = document.querySelector("link[rel='icon']");
+      if (!favicon) {
+        favicon = document.createElement('link');
+        favicon.rel = 'icon';
+        favicon.type = 'image/svg+xml';
+        document.head.appendChild(favicon);
+      }
+      favicon.href = iconUrl;
+
+      // Generate App Web Manifest Blob
+      const manifestObj = {
+        name: "Home Grown School-Based Feeding Program (SF8)",
+        short_name: "SF8 Feeding",
+        description: "Project FoodTrace: Attendance Monitoring System & BMI Analytics",
+        start_url: window.location.href,
+        display: "standalone",
+        background_color: "#f8fafc",
+        theme_color: "#1e3a8a",
+        icons: [
+          { src: iconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+        ]
+      };
+
+      const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/json' });
+      const manifestUrl = URL.createObjectURL(manifestBlob);
+
+      let manifestLink = document.querySelector("link[rel='manifest']");
+      if (!manifestLink) {
+        manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        document.head.appendChild(manifestLink);
+      }
+      manifestLink.href = manifestUrl;
+    } catch (e) {
+      console.warn("PWA Assets Initialization Warning: ", e);
+    }
+  }
+
+  // Handle Mobile/Desktop Web App Install Prompt
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+
+  function triggerAppInstall() {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          showModalPopup("Installation Started", "App shortcut is being added to your device Home Screen!");
+        }
+        deferredInstallPrompt = null;
+      });
+    } else {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      if (isIOS) {
+        showModalPopup("Install on iOS", "To add to your iPhone/iPad Home Screen:\n1. Tap the Share button in Safari\n2. Select 'Add to Home Screen'");
+      } else {
+        showModalPopup("App Installation", "To install on your device or desktop:\n1. Tap your browser menu (3 dots)\n2. Select 'Install app' or 'Add to Home screen'");
+      }
+    }
+  }
 
   function onGradeFilterChange() {
     var selectedGrade = document.getElementById('dashGradeFilter').value;
@@ -674,6 +798,7 @@
   }
 
   window.onload = function() {
+    initDynamicPwaAssets();
     var today = getLocalTodayDate();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
