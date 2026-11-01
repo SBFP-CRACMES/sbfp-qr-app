@@ -9,7 +9,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="SBFP SF8">
+  <meta name="apple-mobile-web-app-title" content="FoodTrace-AMS">
   <meta name="theme-color" content="#1e3a8a">
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -54,10 +54,15 @@
     </div>
     <button class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow-sm mb-2" style="border-radius: 12px;" onclick="attemptLogin()">Unlock Portal</button>
     
-    <!-- Install/Download App Button on Login Screen -->
-    <button class="btn btn-outline-secondary btn-sm w-100 fw-bold py-2 mt-2" style="border-radius: 10px;" onclick="triggerAppInstall()">
-      <i class="fa-solid fa-download me-1"></i> Install / Download App Icon
-    </button>
+    <!-- Install/Download App & Desktop Shortcut Buttons on Login Screen -->
+    <div class="d-flex gap-2 mt-2">
+      <button class="btn btn-outline-secondary btn-sm flex-fill fw-bold py-2" style="border-radius: 10px;" onclick="triggerAppInstall()">
+        <i class="fa-solid fa-mobile-screen-button me-1"></i> Install App
+      </button>
+      <button class="btn btn-outline-primary btn-sm flex-fill fw-bold py-2" style="border-radius: 10px;" onclick="downloadDesktopShortcut()">
+        <i class="fa-solid fa-desktop me-1"></i> Desktop Shortcut
+      </button>
+    </div>
     
     <div id="loginErrorMsg" class="text-danger fw-bold mt-3 small"></div>
   </div>
@@ -80,6 +85,7 @@
       </div>
       <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-warning btn-sm fw-bold text-dark shadow-sm px-3" onclick="triggerAppInstall()"><i class="fa-solid fa-mobile-screen-button me-1"></i> Install App</button>
+        <button class="btn btn-info btn-sm fw-bold text-white shadow-sm px-3" onclick="downloadDesktopShortcut()"><i class="fa-solid fa-desktop me-1"></i> Desktop Icon</button>
         <button class="btn btn-light btn-sm fw-bold text-dark shadow-sm px-3" onclick="toggleFullScreen()"><i class="fa-solid fa-expand me-1"></i> Full Screen</button>
         <button class="btn btn-outline-light btn-sm fw-bold px-3" onclick="logout()"><i class="fa-solid fa-right-from-bracket me-1"></i> Logout</button>
       </div>
@@ -372,7 +378,7 @@
     <path d="M 256 240 C 256 160, 352 130, 372 180 C 332 250, 256 240, 256 240 Z" fill="url(#leafGrad)"/>
     <path d="M 256 245 L 256 140" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
     <rect x="206" y="310" width="100" height="8" rx="4" fill="#2563eb" opacity="0.6"/>
-    <text x="256" y="445" font-family="system-ui, sans-serif" font-size="42" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="4">SF8 AMS</text>
+    <text x="256" y="445" font-family="system-ui, sans-serif" font-size="38" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="3">FoodTrace-AMS</text>
   </svg>`;
 
   // Dynamic PWA Manifest & App Icon Setup
@@ -399,10 +405,10 @@
       }
       favicon.href = iconUrl;
 
-      // Generate App Web Manifest Blob
+      // Generate App Web Manifest Blob with "FoodTrace-AMS"
       const manifestObj = {
         name: "Home Grown School-Based Feeding Program (SF8)",
-        short_name: "SF8 Feeding",
+        short_name: "FoodTrace-AMS",
         description: "Project FoodTrace: Attendance Monitoring System & BMI Analytics",
         start_url: window.location.href,
         display: "standalone",
@@ -428,6 +434,23 @@
     }
   }
 
+  // Generate & Download Desktop Internet Shortcut (.url file)
+  function downloadDesktopShortcut() {
+    const currentUrl = window.location.href;
+    const shortcutContent = `[InternetShortcut]\nURL=${currentUrl}\nIconIndex=0\n`;
+    
+    const blob = new Blob([shortcutContent], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'FoodTrace-AMS.url';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    showModalPopup("Desktop Shortcut Downloaded", "Drag or save 'FoodTrace-AMS.url' to your desktop for quick 1-click access!");
+  }
+
   // Handle Mobile/Desktop Web App Install Prompt
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -439,16 +462,16 @@
       deferredInstallPrompt.prompt();
       deferredInstallPrompt.userChoice.then((choiceResult) => {
         if (choiceResult.outcome === 'accepted') {
-          showModalPopup("Installation Started", "App shortcut is being added to your device Home Screen!");
+          showModalPopup("Installation Started", "FoodTrace-AMS shortcut is being added to your device Home Screen!");
         }
         deferredInstallPrompt = null;
       });
     } else {
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
       if (isIOS) {
-        showModalPopup("Install on iOS", "To add to your iPhone/iPad Home Screen:\n1. Tap the Share button in Safari\n2. Select 'Add to Home Screen'");
+        showModalPopup("Install on iOS", "To add FoodTrace-AMS to your iPhone/iPad Home Screen:\n1. Tap the Share button in Safari\n2. Select 'Add to Home Screen'");
       } else {
-        showModalPopup("App Installation", "To install on your device or desktop:\n1. Tap your browser menu (3 dots)\n2. Select 'Install app' or 'Add to Home screen'");
+        showModalPopup("App Installation", "To install FoodTrace-AMS on your device or desktop:\n1. Tap your browser menu (3 dots)\n2. Select 'Install app' or 'Add to Home screen'");
       }
     }
   }
