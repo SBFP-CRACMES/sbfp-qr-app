@@ -54,13 +54,13 @@
     </div>
     <button class="btn btn-primary btn-lg w-100 fw-bold py-3 shadow-sm mb-2" style="border-radius: 12px;" onclick="attemptLogin()">Unlock Portal</button>
     
-    <!-- Install/Download App & Desktop Shortcut Buttons on Login Screen -->
+    <!-- Desktop Shortcut & Mobile App Install Buttons -->
     <div class="d-flex gap-2 mt-2">
-      <button class="btn btn-outline-secondary btn-sm flex-fill fw-bold py-2" style="border-radius: 10px;" onclick="triggerAppInstall()">
-        <i class="fa-solid fa-mobile-screen-button me-1"></i> Install App
-      </button>
       <button class="btn btn-outline-primary btn-sm flex-fill fw-bold py-2" style="border-radius: 10px;" onclick="downloadDesktopShortcut()">
         <i class="fa-solid fa-desktop me-1"></i> Desktop Shortcut
+      </button>
+      <button class="btn btn-outline-secondary btn-sm flex-fill fw-bold py-2" style="border-radius: 10px;" onclick="triggerAppInstall()">
+        <i class="fa-solid fa-mobile-screen-button me-1"></i> Install Mobile App
       </button>
     </div>
     
@@ -84,8 +84,8 @@
         </div>
       </div>
       <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-warning btn-sm fw-bold text-dark shadow-sm px-3" onclick="triggerAppInstall()"><i class="fa-solid fa-mobile-screen-button me-1"></i> Install App</button>
         <button class="btn btn-info btn-sm fw-bold text-white shadow-sm px-3" onclick="downloadDesktopShortcut()"><i class="fa-solid fa-desktop me-1"></i> Desktop Icon</button>
+        <button class="btn btn-warning btn-sm fw-bold text-dark shadow-sm px-3" onclick="triggerAppInstall()"><i class="fa-solid fa-mobile-screen-button me-1"></i> Install App</button>
         <button class="btn btn-light btn-sm fw-bold text-dark shadow-sm px-3" onclick="toggleFullScreen()"><i class="fa-solid fa-expand me-1"></i> Full Screen</button>
         <button class="btn btn-outline-light btn-sm fw-bold px-3" onclick="logout()"><i class="fa-solid fa-right-from-bracket me-1"></i> Logout</button>
       </div>
@@ -434,12 +434,12 @@
     }
   }
 
-  // Generate & Download Desktop Internet Shortcut (.url file)
+  // Generate & Download Desktop Internet Shortcut (.url file) that launches in default browser
   function downloadDesktopShortcut() {
     const currentUrl = window.location.href;
-    const shortcutContent = `[InternetShortcut]\nURL=${currentUrl}\nIconIndex=0\n`;
+    const shortcutContent = `[InternetShortcut]\r\nURL=${currentUrl}\r\nIDList=\r\nHotKey=0\r\nIconFile=\r\nIconIndex=0\r\n`;
     
-    const blob = new Blob([shortcutContent], { type: 'text/plain' });
+    const blob = new Blob([shortcutContent], { type: 'application/x-mswinurl' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'FoodTrace-AMS.url';
@@ -448,7 +448,7 @@
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
 
-    showModalPopup("Desktop Shortcut Downloaded", "Drag or save 'FoodTrace-AMS.url' to your desktop for quick 1-click access!");
+    showModalPopup("Desktop Shortcut Downloaded", "Save or move 'FoodTrace-AMS.url' to your desktop!\nDouble-clicking it will instantly launch FoodTrace-AMS in your web browser.");
   }
 
   // Handle Mobile/Desktop Web App Install Prompt
