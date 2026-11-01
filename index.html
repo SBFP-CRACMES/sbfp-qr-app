@@ -143,13 +143,15 @@
         <div class="row">
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold small">Grade Level</label>
-            <select class="form-select" name="grade" required>
+            <select class="form-select" name="grade" id="addPupilGrade" onchange="updateFormSections('addPupilGrade', 'addPupilSection')" required>
               <option value="Kindergarten">Kindergarten</option><option value="Grade 1">Grade 1</option><option value="Grade 2">Grade 2</option><option value="Grade 3">Grade 3</option><option value="Grade 4">Grade 4</option><option value="Grade 5">Grade 5</option><option value="Grade 6">Grade 6</option>
             </select>
           </div>
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold small">Section</label>
-            <input type="text" class="form-control" name="section" placeholder="e.g. Magiliw" required>
+            <select class="form-select" name="section" id="addPupilSection" required>
+              <!-- Options populated via JS -->
+            </select>
           </div>
           <div class="col-md-3 mb-3">
             <label class="form-label fw-bold small">Birthdate</label>
@@ -233,9 +235,15 @@
       <div class="row g-3 align-items-end">
         <div class="col-md-3">
           <label class="form-label small fw-bold">Grade Level</label>
-          <select id="dashGradeFilter" class="form-select form-select-sm" onchange="loadDashboard()">
+          <select id="dashGradeFilter" class="form-select form-select-sm" onchange="onGradeFilterChange()">
             <option value="All">All Grade Levels</option>
-            <option value="Kindergarten">Kindergarten</option><option value="Grade 1">Grade 1</option><option value="Grade 2">Grade 2</option><option value="Grade 3">Grade 3</option><option value="Grade 4">Grade 4</option><option value="Grade 5">Grade 5</option><option value="Grade 6">Grade 6</option>
+            <option value="Kindergarten">Kindergarten</option>
+            <option value="Grade 1">Grade 1</option>
+            <option value="Grade 2">Grade 2</option>
+            <option value="Grade 3">Grade 3</option>
+            <option value="Grade 4">Grade 4</option>
+            <option value="Grade 5">Grade 5</option>
+            <option value="Grade 6">Grade 6</option>
           </select>
         </div>
         <div class="col-md-3">
@@ -303,12 +311,63 @@
   // Paste your Google Apps Script Web App URL here
   const API_URL = "https://script.google.com/macros/s/AKfycbzzptOLasIL2A-3D6DGK_Mr-PQF3i6mSwy8z3N6ml7ZuTeCtpbKzNnFL3nD2Ret3CIj/exec";
 
+  // Section Mapping per Grade Level
+  const SECTION_MAPPING = {
+    "Kindergarten": ["Asul", "Berde", "Dilaw", "Kahel", "Lila", "Pula"],
+    "Grade 1": ["Magiliw", "Malikhain", "Masikap", "Matatag", "Matibay"],
+    "Grade 2": ["Anahaw", "Cariñosa", "Narra", "Sampaguita"],
+    "Grade 3": ["Mt. Apo", "Mt. Arayat", "Mt. Banahaw", "Mt. Makiling", "Mt. Pulag"],
+    "Grade 4": ["Dinagyang", "Moriones", "Pahiyas", "Panagbenga"],
+    "Grade 5": ["A. Bonifacio", "A. Mabini", "J. Rizal", "M. Del Pilar"],
+    "Grade 6": ["Aquino", "Duterte", "Marcos"]
+  };
+
   var userPin = sessionStorage.getItem("sbfp_user_pin") || "";
   var userRole = sessionStorage.getItem("sbfp_user_role") || "";
   var html5QrCode = null;
   var currentPupilId = null;
   var bmiChart, attChart;
   var dashInterval = null;
+
+  function onGradeFilterChange() {
+    var selectedGrade = document.getElementById('dashGradeFilter').value;
+    var sectionSelect = document.getElementById('dashSectionFilter');
+    sectionSelect.innerHTML = '<option value="All">All Sections</option>';
+
+    if (selectedGrade === "All") {
+      Object.keys(SECTION_MAPPING).forEach(grade => {
+        SECTION_MAPPING[grade].forEach(sec => {
+          var opt = document.createElement('option');
+          opt.value = sec;
+          opt.textContent = sec + " (" + grade + ")";
+          sectionSelect.appendChild(opt);
+        });
+      });
+    } else if (SECTION_MAPPING[selectedGrade]) {
+      SECTION_MAPPING[selectedGrade].forEach(sec => {
+        var opt = document.createElement('option');
+        opt.value = sec;
+        opt.textContent = sec;
+        sectionSelect.appendChild(opt);
+      });
+    }
+    loadDashboard();
+  }
+
+  function updateFormSections(gradeSelectId, sectionSelectId) {
+    var grade = document.getElementById(gradeSelectId).value;
+    var sectionSelect = document.getElementById(sectionSelectId);
+    sectionSelect.innerHTML = "";
+
+    if (SECTION_MAPPING[grade]) {
+      SECTION_MAPPING[grade].forEach(sec => {
+        var opt = document.createElement('option');
+        opt.value = sec;
+        opt.textContent = sec;
+        sectionSelect.appendChild(opt);
+      });
+    }
+  }
 
   function playBeep() {
     try {
@@ -513,6 +572,7 @@
       if (res.success) {
         showModalPopup("Learner Saved", `Learner successfully added to masterlist!\nGenerated ID: ${res.pupilId}`);
         document.getElementById('beneficiaryForm').reset();
+        updateFormSections('addPupilGrade', 'addPupilSection');
       } else {
         showModalPopup("Error", res.message, false);
       }
@@ -559,28 +619,6 @@
     });
   }
 
-  function populateSectionDropdown(sections) {
-    const sectionSelect = document.getElementById('dashSectionFilter');
-    const currentValue = sectionSelect.value;
-    
-    sectionSelect.innerHTML = '<option value="All">All Sections</option>';
-    
-    if (sections && Array.isArray(sections)) {
-      sections.forEach(sec => {
-        if (sec && sec.trim() !== "") {
-          const opt = document.createElement('option');
-          opt.value = sec;
-          opt.textContent = sec;
-          sectionSelect.appendChild(opt);
-        }
-      });
-    }
-    
-    if ([...sectionSelect.options].some(o => o.value === currentValue)) {
-      sectionSelect.value = currentValue;
-    }
-  }
-
   function applyFiltersWithPopup() {
     loadDashboard();
     showModalPopup("Filters Applied", "Dashboard analytics filters and section criteria were successfully applied.");
@@ -589,7 +627,7 @@
   function resetFilters() {
     var today = getLocalTodayDate();
     document.getElementById('dashGradeFilter').value = "All";
-    document.getElementById('dashSectionFilter').value = "All";
+    onGradeFilterChange();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
     loadDashboard();
@@ -603,10 +641,6 @@
 
     apiCall("getDashboardData", { grade: grade, section: section, startDate: startDate, endDate: endDate }).then(data => {
       if (!data || !data.success) return;
-
-      if (data.sections) {
-        populateSectionDropdown(data.sections);
-      }
 
       document.getElementById('dashTotalBen').innerText = data.totalBeneficiaries;
       document.getElementById('dashServedToday').innerText = data.totalServed;
@@ -643,6 +677,8 @@
     var today = getLocalTodayDate();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
+    onGradeFilterChange();
+    updateFormSections('addPupilGrade', 'addPupilSection');
     if (userPin) attemptLogin();
   };
 </script>
