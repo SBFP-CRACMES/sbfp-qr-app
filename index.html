@@ -16,6 +16,9 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- jsPDF & AutoTable for PDF Export -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   
   <style>
     :root {
@@ -34,6 +37,8 @@
     .nav-pills .nav-link { font-weight: 600; border-radius: 10px; color: #475569; transition: all 0.3s ease; padding: 12px 20px; }
     .nav-pills .nav-link.active { background: var(--primary-gradient); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
     .modal-content { border-radius: 20px; border: none; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+    .history-table th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #475569; background-color: #f1f5f9; }
+    .history-table td { font-size: 0.88rem; vertical-align: middle; }
   </style>
 </head>
 <body>
@@ -109,7 +114,7 @@
 
   <!-- TAB 1: LIVE QR SCANNER -->
   <div id="tab-scanner" class="tab-content d-none">
-    <div class="card p-4 text-center">
+    <div class="card p-4 text-center mb-4">
       <h5 class="fw-bold mb-3 text-primary"><i class="fa-solid fa-id-card me-2"></i> Live Camera QR Scanner</h5>
       <p class="text-muted small">Position the pupil's QR code or LRN barcode in front of the camera.</p>
       <div id="reader"></div>
@@ -129,6 +134,47 @@
         </div>
       </div>
       <div id="scanStatusMsg" class="mt-3 fw-bold text-primary"></div>
+    </div>
+
+    <!-- LOCAL SCAN HISTORY LOG -->
+    <div class="card p-4">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h5 class="fw-bold mb-0 text-primary">
+            <i class="fa-solid fa-clock-rotate-left me-2"></i> Local Scan History Log
+            <span class="badge bg-primary ms-2" id="scanHistoryCount">0</span>
+          </h5>
+          <small class="text-muted">Stored locally on this device for successful attendance scans.</small>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm" onclick="downloadScanHistoryPdf()">
+            <i class="fa-solid fa-file-pdf me-1"></i> Download PDF
+          </button>
+          <button class="btn btn-outline-secondary btn-sm fw-bold px-3" onclick="clearScanHistory()">
+            <i class="fa-solid fa-trash-can me-1"></i> Clear Log
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover history-table mb-0">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Timestamp</th>
+              <th>Pupil ID / LRN</th>
+              <th>Learner Name</th>
+              <th>Grade & Section</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="scanHistoryBody">
+            <tr>
+              <td colspan="6" class="text-center text-muted py-4">No successful scans recorded locally yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -417,6 +463,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   const API_URL = "https://script.google.com/macros/s/AKfycbzzptOLasIL2A-3D6DGK_Mr-PQF3i6mSwy8z3N6ml7ZuTeCtpbKzNnFL3nD2Ret3CIj/exec";
+  const SCAN_HISTORY_STORAGE_KEY = "sbfp_local_scan_history_v1";
 
   const SECTION_MAPPING = {
     "Kindergarten": ["Asul", "Berde", "Dilaw", "Kahel", "Lila", "Pula"],
@@ -425,16 +472,172 @@
     "Grade 3": ["Mt. Apo", "Mt. Arayat", "Mt. Banahaw", "Mt. Makiling", "Mt. Pulag"],
     "Grade 4": ["Dinagyang", "Moriones", "Pahiyas", "Panagbenga"],
     "Grade 5": ["A. Bonifacio", "A. Mabini", "J. Rizal", "M. Del Pilar"],
-    "Grade 6": ["Aquino", "Arroyo", "Duterte", "Marcos"]
+    "Grade 6": ["Aquino", "Duterte", "Marcos"]
   };
 
   var userPin = sessionStorage.getItem("sbfp_user_pin") || "";
   var userRole = sessionStorage.getItem("sbfp_user_role") || "";
   var html5QrCode = null;
   var currentPupilId = null;
+  var currentScannedPupil = null;
   var bmiChart, attChart;
   var dashInterval = null;
   var deferredInstallPrompt = null;
+
+  // ==================== LOCAL SCAN HISTORY FUNCTIONS ====================
+  function getLocalScanHistory() {
+    try {
+      const raw = localStorage.getItem(SCAN_HISTORY_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error("Failed to read local scan history:", err);
+      return [];
+    }
+  }
+
+  function saveLocalScanHistory(logs) {
+    try {
+      localStorage.setItem(SCAN_HISTORY_STORAGE_KEY, JSON.stringify(logs));
+    } catch (err) {
+      console.error("Failed to save local scan history:", err);
+      showModalPopup("Storage Warning", "Could not save scan log locally. Browser storage may be full.", false);
+    }
+  }
+
+  function formatStatusLabel(code) {
+    if (code === "/") return "(/) Served / Present";
+    if (code === "A") return "(A) Absent";
+    if (code === "//") return "(//) Served Twice";
+    return code || "---";
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function addSuccessfulScanToLog(entry) {
+    const logs = getLocalScanHistory();
+    logs.unshift(entry); // Newest scan on top
+    saveLocalScanHistory(logs);
+    renderScanHistoryTable();
+  }
+
+  function renderScanHistoryTable() {
+    const tbody = document.getElementById("scanHistoryBody");
+    const countBadge = document.getElementById("scanHistoryCount");
+    if (!tbody || !countBadge) return;
+
+    const logs = getLocalScanHistory();
+    countBadge.innerText = logs.length;
+
+    if (logs.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">No successful scans recorded locally yet.</td>
+        </tr>`;
+      return;
+    }
+
+    tbody.innerHTML = logs.map((item, idx) => {
+      let badgeClass = "bg-secondary";
+      if (item.status === "/") badgeClass = "bg-success";
+      else if (item.status === "A") badgeClass = "bg-danger";
+      else if (item.status === "//") badgeClass = "bg-warning text-dark";
+
+      const idDisplay = item.lrn && item.lrn !== item.pupilId
+        ? `${escapeHtml(item.pupilId)} / ${escapeHtml(item.lrn)}`
+        : escapeHtml(item.pupilId);
+
+      const gradeSec = item.section
+        ? `${escapeHtml(item.grade)} - ${escapeHtml(item.section)}`
+        : escapeHtml(item.grade);
+
+      return `
+        <tr>
+          <td class="fw-bold">${logs.length - idx}</td>
+          <td>${escapeHtml(item.timestamp)}</td>
+          <td><span class="fw-semibold">${idDisplay}</span></td>
+          <td class="fw-bold">${escapeHtml(item.name)}</td>
+          <td>${gradeSec}</td>
+          <td><span class="badge ${badgeClass}">${escapeHtml(formatStatusLabel(item.status))}</span></td>
+        </tr>`;
+    }).join("");
+  }
+
+  function clearScanHistory() {
+    const logs = getLocalScanHistory();
+    if (logs.length === 0) {
+      showModalPopup("Log Already Empty", "There are no local scan records to clear.");
+      return;
+    }
+    if (!confirm("Clear all locally saved scan history records on this device?")) return;
+    localStorage.removeItem(SCAN_HISTORY_STORAGE_KEY);
+    renderScanHistoryTable();
+    showModalPopup("Scan Log Cleared", "All local scan history records have been removed.");
+  }
+
+  function downloadScanHistoryPdf() {
+    const logs = getLocalScanHistory();
+    if (logs.length === 0) {
+      showModalPopup("No Records to Export", "Record at least one successful scan before downloading the PDF.", false);
+      return;
+    }
+
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      showModalPopup("PDF Library Missing", "jsPDF failed to load. Check your internet connection and reload.", false);
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+
+    const nowStr = new Date().toLocaleString();
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Congressman Reynaldo A. Calalay Memorial Elementary School (ID: 136496)", 40, 40);
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.text("Home Grown School-Based Feeding Program (SF8) — Local Scan History Log", 40, 58);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(`Generated: ${nowStr}   |   Total Successful Scans: ${logs.length}`, 40, 74);
+    doc.setTextColor(0);
+
+    // Chronological order (oldest to newest) in PDF report
+    const orderedLogs = [...logs].reverse();
+    const tableRows = orderedLogs.map((item, i) => [
+      i + 1,
+      item.timestamp || "",
+      item.pupilId || "",
+      item.lrn || "",
+      item.name || "",
+      item.grade || "",
+      item.section || "",
+      formatStatusLabel(item.status)
+    ]);
+
+    doc.autoTable({
+      startY: 88,
+      head: [["#", "Timestamp", "Pupil ID", "LRN", "Learner Name", "Grade", "Section", "Status"]],
+      body: tableRows,
+      styles: { fontSize: 8.5, cellPadding: 5 },
+      headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      margin: { left: 40, right: 40 }
+    });
+
+    const fileStamp = getLocalTodayDate();
+    doc.save(`FoodTrace-Scan-History-${fileStamp}.pdf`);
+  }
+  // ====================================================================
 
   const appIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
     <defs>
@@ -638,6 +841,17 @@
     return [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
   }
 
+  function getLocalTimestamp() {
+    var d = new Date();
+    var datePart = [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+    var timePart = [
+      ('0' + d.getHours()).slice(-2),
+      ('0' + d.getMinutes()).slice(-2),
+      ('0' + d.getSeconds()).slice(-2)
+    ].join(':');
+    return `${datePart} ${timePart}`;
+  }
+
   async function apiCall(action, data = {}) {
     try {
       const payload = new URLSearchParams();
@@ -675,6 +889,7 @@
         document.getElementById('loginScreen').classList.add('d-none');
         document.getElementById('mainApp').classList.remove('d-none');
         document.getElementById('userRoleBadge').innerText = "Role: " + userRole;
+        renderScanHistoryTable();
         applyRolePermissions(userRole);
       } else {
         sessionStorage.clear();
@@ -711,9 +926,18 @@
     document.getElementById('tab-' + tabName).classList.remove('d-none');
     if (element) element.classList.add('active');
 
-    if (tabName === 'scanner') { startScanner(); stopDashboardAutoRefresh(); }
-    else if (tabName === 'dashboard') { stopScanner(); loadDashboard(); startDashboardAutoRefresh(); }
-    else { stopScanner(); stopDashboardAutoRefresh(); }
+    if (tabName === 'scanner') {
+      renderScanHistoryTable();
+      startScanner();
+      stopDashboardAutoRefresh();
+    } else if (tabName === 'dashboard') {
+      stopScanner();
+      loadDashboard();
+      startDashboardAutoRefresh();
+    } else {
+      stopScanner();
+      stopDashboardAutoRefresh();
+    }
   }
 
   function startDashboardAutoRefresh() {
@@ -746,11 +970,13 @@
   function onScanSuccess(decodedText) {
     if (currentPupilId === decodedText.trim()) return;
     currentPupilId = decodedText.trim();
+    currentScannedPupil = null;
     playBeep();
     document.getElementById('scanStatusMsg').innerText = "Recognized! Fetching Learner Info...";
 
     apiCall("getPupilByQR", { pupilId: currentPupilId }).then(res => {
       if (res.success) {
+        currentScannedPupil = res.pupil;
         document.getElementById('pName').innerText = res.pupil.name;
         document.getElementById('pGrade').innerText = res.pupil.grade;
         document.getElementById('pSection').innerText = res.pupil.section || "Magiliw";
@@ -767,12 +993,30 @@
 
   function submitAttendance(status) {
     if (!currentPupilId) return;
+    const pupilSnapshot = currentScannedPupil;
+    const scannedIdSnapshot = currentPupilId;
+
     document.getElementById('scanStatusMsg').innerText = "Recording attendance...";
     apiCall("recordAttendance", { pupilId: currentPupilId, status: status }).then(res => {
-      if (res.success) {
+      if (res && res.success) {
+        addSuccessfulScanToLog({
+          id: "SCAN-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+          timestamp: getLocalTimestamp(),
+          pupilId: (pupilSnapshot && pupilSnapshot.id) ? pupilSnapshot.id : scannedIdSnapshot,
+          lrn: (pupilSnapshot && pupilSnapshot.lrn) ? pupilSnapshot.lrn : "",
+          name: res.name || (pupilSnapshot && pupilSnapshot.name) || scannedIdSnapshot,
+          grade: (pupilSnapshot && pupilSnapshot.grade) || "",
+          section: (pupilSnapshot && pupilSnapshot.section) || "",
+          status: status
+        });
+
         showModalPopup("Attendance Recorded", `Successfully logged ${res.name} as (${status})`);
         document.getElementById('scanResult').classList.add('d-none');
         currentPupilId = null;
+        currentScannedPupil = null;
+        document.getElementById('scanStatusMsg').innerText = "";
+      } else {
+        showModalPopup("Recording Failed", (res && res.message) || "Could not record attendance.", false);
         document.getElementById('scanStatusMsg').innerText = "";
       }
     });
@@ -800,7 +1044,6 @@
 
     apiCall("getPupilByQR", { pupilId: pupilId }).then(res => {
       if (res.success) {
-        // Populate Masterlist Details
         document.getElementById('upLrn').value = res.pupil.lrn || "";
         document.getElementById('upName').value = res.pupil.name || "";
         document.getElementById('upAddress').value = res.pupil.address || "";
@@ -814,7 +1057,6 @@
         document.getElementById('upBirthdate').value = res.pupil.birthdate ? res.pupil.birthdate.split('T')[0] : "";
         document.getElementById('upDewormed').value = res.pupil.dewormed || "YES";
 
-        // Pre-fill metrics
         document.getElementById('upDate').value = getLocalTodayDate();
         document.getElementById('upWeight').value = res.pupil.baseWeight || "";
         document.getElementById('upHeight').value = res.pupil.baseHeight || "";
@@ -923,6 +1165,7 @@
 
   window.onload = function() {
     initDynamicPwaAssets();
+    renderScanHistoryTable();
     var today = getLocalTodayDate();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
