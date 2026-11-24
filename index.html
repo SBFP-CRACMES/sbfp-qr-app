@@ -132,6 +132,9 @@
           <button class="btn btn-danger flex-fill status-btn" onclick="submitAttendance('A')"><i class="fa-solid fa-xmark me-1"></i> (A) Absent</button>
           <button class="btn btn-warning flex-fill status-btn text-dark" onclick="submitAttendance('//')"><i class="fa-solid fa-rotate me-1"></i> (//) Served Twice</button>
         </div>
+        <button class="btn btn-outline-secondary btn-sm mt-3 fw-bold px-4" onclick="resetScannerState()">
+          <i class="fa-solid fa-rotate-left me-1"></i> Cancel / Scan Next Learner
+        </button>
       </div>
       <div id="scanStatusMsg" class="mt-3 fw-bold text-primary"></div>
     </div>
@@ -462,8 +465,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-  const API_URL = "https://script.google.com/macros/s/AKfycbzzptOLasIL2A-3D6DGK_Mr-PQF3i6mSwy8z3N6ml7ZuTeCtpbKzNnFL3nD2Ret3CIj/exec";
-  const SCAN_HISTORY_STORAGE_KEY = "sbfp_local_scan_history_v1";
+  const API_URL = "https://script.google.com/macros/s/AKfycbzzptOLasIL2A-3D6DGK_Mr-PQF3i6mSwy8z3N6ml7ZuTeCtpbKzNnFL3nD2Ret3CIj/exec"; //[cite: 5]
+  const SCAN_HISTORY_STORAGE_KEY = "sbfp_local_scan_history_v1"; //[cite: 5]
 
   const SECTION_MAPPING = {
     "Kindergarten": ["Asul", "Berde", "Dilaw", "Kahel", "Lila", "Pula"],
@@ -472,7 +475,7 @@
     "Grade 3": ["Mt. Apo", "Mt. Arayat", "Mt. Banahaw", "Mt. Makiling", "Mt. Pulag"],
     "Grade 4": ["Dinagyang", "Moriones", "Pahiyas", "Panagbenga"],
     "Grade 5": ["A. Bonifacio", "A. Mabini", "J. Rizal", "M. Del Pilar"],
-    "Grade 6": ["Aquino", "Duterte", "Marcos"]
+    "Grade 6": ["Aquino", "Duterte", "Marcos"] //[cite: 5]
   };
 
   var userPin = sessionStorage.getItem("sbfp_user_pin") || "";
@@ -482,7 +485,7 @@
   var currentScannedPupil = null;
   var bmiChart, attChart;
   var dashInterval = null;
-  var deferredInstallPrompt = null;
+  var deferredInstallPrompt = null; //[cite: 5]
 
   // ==================== LOCAL SCAN HISTORY FUNCTIONS ====================
   function getLocalScanHistory() {
@@ -512,6 +515,28 @@
     return code || "---";
   }
 
+  function normalizeStatusKey(code) {
+    const raw = String(code ?? "").trim().toLowerCase();
+    if (raw === "/" || raw === "served" || raw === "present" || raw === "(/) served / present") return "served";
+    if (raw === "a" || raw === "absent" || raw === "(a) absent") return "absent";
+    if (raw === "//" || raw === "serve twice" || raw === "served twice" || raw === "(//) served twice") return "served_twice";
+    return raw;
+  }
+
+  function getEntryDateKey(entry) {
+    if (entry && entry.timestamp) {
+      const match = String(entry.timestamp).match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+    }
+    return getLocalTodayDate();
+  }
+
+  function getEntryLearnerKey(entry) {
+    const idPart = String(entry.pupilId ?? "").trim().toLowerCase();
+    const lrnPart = String(entry.lrn ?? "").trim().toLowerCase();
+    return idPart || lrnPart || String(entry.name ?? "").trim().toLowerCase();
+  }
+
   function escapeHtml(str) {
     return String(str ?? "")
       .replace(/&/g, "&amp;")
@@ -523,7 +548,22 @@
 
   function addSuccessfulScanToLog(entry) {
     const logs = getLocalScanHistory();
-    logs.unshift(entry); // Newest scan on top
+    const newDateKey = getEntryDateKey(entry);
+    const newLearnerKey = getEntryLearnerKey(entry);
+    const newStatusKey = normalizeStatusKey(entry.status);
+
+    const isDuplicateSameStatus = logs.some(existing =>
+      getEntryDateKey(existing) === newDateKey &&
+      getEntryLearnerKey(existing) === newLearnerKey &&
+      normalizeStatusKey(existing.status) === newStatusKey
+    );
+
+    if (isDuplicateSameStatus) {
+      renderScanHistoryTable();
+      return;
+    }
+
+    logs.unshift(entry);
     saveLocalScanHistory(logs);
     renderScanHistoryTable();
   }
@@ -611,7 +651,6 @@
     doc.text(`Generated: ${nowStr}   |   Total Successful Scans: ${logs.length}`, 40, 74);
     doc.setTextColor(0);
 
-    // Chronological order (oldest to newest) in PDF report
     const orderedLogs = [...logs].reverse();
     const tableRows = orderedLogs.map((item, i) => [
       i + 1,
@@ -659,7 +698,7 @@
     <path d="M 256 245 L 256 140" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
     <rect x="206" y="310" width="100" height="8" rx="4" fill="#2563eb" opacity="0.6"/>
     <text x="256" y="445" font-family="system-ui, sans-serif" font-size="38" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="3">FoodTrace-AMS</text>
-  </svg>`;
+  </svg>`; //[cite: 5]
 
   function initDynamicPwaAssets() {
     try {
@@ -706,7 +745,7 @@
       manifestLink.href = manifestUrl;
     } catch (e) {
       console.warn("PWA Assets Initialization Warning: ", e);
-    }
+    } //[cite: 5]
   }
 
   function downloadDesktopShortcut() {
@@ -720,7 +759,7 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(a.href);
-    showModalPopup("Desktop Shortcut Downloaded", "Save 'FoodTrace-AMS.url' to your desktop to launch FoodTrace-AMS directly.");
+    showModalPopup("Desktop Shortcut Downloaded", "Save 'FoodTrace-AMS.url' to your desktop to launch FoodTrace-AMS directly."); //[cite: 5]
   }
 
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -744,7 +783,7 @@
       } else {
         showModalPopup("App Installation", "To install:\n1. Tap browser menu (3 dots)\n2. Select 'Install app' or 'Add to Home screen'");
       }
-    }
+    } //[cite: 5]
   }
 
   function onGradeFilterChange() {
@@ -769,7 +808,7 @@
         sectionSelect.appendChild(opt);
       });
     }
-    loadDashboard();
+    loadDashboard(); //[cite: 5]
   }
 
   function updateFormSections(gradeSelectId, sectionSelectId) {
@@ -784,7 +823,7 @@
         opt.textContent = sec;
         sectionSelect.appendChild(opt);
       });
-    }
+    } //[cite: 5]
   }
 
   function playBeep() {
@@ -799,7 +838,7 @@
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.15);
-    } catch(e) { console.log(e); }
+    } catch(e) { console.log(e); } //[cite: 5]
   }
 
   function showModalPopup(title, message, isSuccess = true) {
@@ -807,7 +846,7 @@
     document.getElementById('modalMessage').innerText = message;
     document.getElementById('modalIcon').className = isSuccess ? "fa-solid fa-circle-check text-success fa-3x" : "fa-solid fa-circle-exclamation text-danger fa-3x";
     var myModal = new bootstrap.Modal(document.getElementById('notificationModal'));
-    myModal.show();
+    myModal.show(); //[cite: 5]
   }
 
   function toggleFullScreen() {
@@ -817,7 +856,7 @@
       });
     } else {
       if (document.exitFullscreen) { document.exitFullscreen(); }
-    }
+    } //[cite: 5]
   }
 
   function autoComputeBMI(wtId, htId, bmiId) {
@@ -833,12 +872,12 @@
     else if (bmiValue >= 25.0 && bmiValue < 30.0) status = "Overweight";
     else if (bmiValue >= 30.0) status = "Obese";
     
-    bmiField.value = status;
+    bmiField.value = status; //[cite: 5]
   }
 
   function getLocalTodayDate() {
     var d = new Date();
-    return [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-');
+    return [d.getFullYear(), ('0' + (d.getMonth() + 1)).slice(-2), ('0' + d.getDate()).slice(-2)].join('-'); //[cite: 5]
   }
 
   function getLocalTimestamp() {
@@ -849,7 +888,7 @@
       ('0' + d.getMinutes()).slice(-2),
       ('0' + d.getSeconds()).slice(-2)
     ].join(':');
-    return `${datePart} ${timePart}`;
+    return `${datePart} ${timePart}`; //[cite: 5]
   }
 
   async function apiCall(action, data = {}) {
@@ -869,7 +908,7 @@
     } catch (err) {
       console.error(err);
       return { success: false, message: "Network connection error" };
-    }
+    } //[cite: 5]
   }
 
   function attemptLogin() {
@@ -898,7 +937,7 @@
       }
     }).catch(() => {
       document.getElementById('loginErrorMsg').innerText = "❌ Connection error! Please check Web App URL.";
-    });
+    }); //[cite: 5]
   }
 
   function applyRolePermissions(role) {
@@ -906,7 +945,7 @@
       showTab('scanner', document.getElementById('btn-tab-scanner'));
     } else if (role === "Admin") {
       showTab('dashboard', document.getElementById('btn-tab-dashboard'));
-    }
+    } //[cite: 5]
   }
 
   function logout() {
@@ -917,7 +956,7 @@
     document.getElementById('mainApp').classList.add('d-none');
     document.getElementById('loginScreen').classList.remove('d-none');
     document.getElementById('inputPin').value = "";
-    document.getElementById('loginErrorMsg').innerText = "";
+    document.getElementById('loginErrorMsg').innerText = ""; //[cite: 5]
   }
 
   function showTab(tabName, element) {
@@ -937,16 +976,16 @@
     } else {
       stopScanner();
       stopDashboardAutoRefresh();
-    }
+    } //[cite: 5]
   }
 
   function startDashboardAutoRefresh() {
     stopDashboardAutoRefresh();
-    dashInterval = setInterval(loadDashboard, 8000);
+    dashInterval = setInterval(loadDashboard, 8000); //[cite: 5]
   }
 
   function stopDashboardAutoRefresh() {
-    if (dashInterval) { clearInterval(dashInterval); dashInterval = null; }
+    if (dashInterval) { clearInterval(dashInterval); dashInterval = null; } //[cite: 5]
   }
 
   function startScanner() {
@@ -958,13 +997,20 @@
       onScanSuccess
     ).catch(err => {
       document.getElementById('scanStatusMsg').innerText = "Camera access error or unsupported device.";
-    });
+    }); //[cite: 5]
   }
 
   function stopScanner() {
     if (html5QrCode && html5QrCode.isScanning) {
       html5QrCode.stop().then(() => { html5QrCode = null; });
-    }
+    } //[cite: 5]
+  }
+
+  function resetScannerState() {
+    currentPupilId = null;
+    currentScannedPupil = null;
+    document.getElementById('scanResult').classList.add('d-none');
+    document.getElementById('scanStatusMsg').innerText = "";
   }
 
   function onScanSuccess(decodedText) {
@@ -987,8 +1033,9 @@
       } else {
         document.getElementById('scanStatusMsg').innerText = res.message;
         document.getElementById('scanResult').classList.add('d-none');
+        currentPupilId = null;
       }
-    });
+    }); //[cite: 5]
   }
 
   function submitAttendance(status) {
@@ -1019,7 +1066,7 @@
         showModalPopup("Recording Failed", (res && res.message) || "Could not record attendance.", false);
         document.getElementById('scanStatusMsg').innerText = "";
       }
-    });
+    }); //[cite: 5]
   }
 
   document.getElementById('beneficiaryForm').addEventListener('submit', function(e) {
@@ -1035,7 +1082,7 @@
       } else {
         showModalPopup("Error", res.message, false);
       }
-    });
+    }); //[cite: 5]
   });
 
   function fetchLearnerForUpdate() {
@@ -1069,7 +1116,7 @@
         document.getElementById('updateFormContainer').classList.add('d-none');
         document.getElementById('updateMsg').innerHTML = `<div class="alert alert-danger">❌ ${res.message}</div>`;
       }
-    });
+    }); //[cite: 5]
   }
 
   function submitUpdateLearner(e) {
@@ -1106,12 +1153,12 @@
       } else {
         showModalPopup("Update Failed", res.message, false);
       }
-    });
+    }); //[cite: 5]
   }
 
   function applyFiltersWithPopup() {
     loadDashboard();
-    showModalPopup("Filters Applied", "Dashboard analytics filters and section criteria were successfully applied.");
+    showModalPopup("Filters Applied", "Dashboard analytics filters and section criteria were successfully applied."); //[cite: 5]
   }
 
   function resetFilters() {
@@ -1120,7 +1167,7 @@
     onGradeFilterChange();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
-    loadDashboard();
+    loadDashboard(); //[cite: 5]
   }
 
   function loadDashboard() {
@@ -1160,7 +1207,7 @@
         },
         options: { responsive: true }
       });
-    });
+    }); //[cite: 5]
   }
 
   window.onload = function() {
@@ -1171,7 +1218,7 @@
     document.getElementById('dashEndDate').value = today;
     onGradeFilterChange();
     updateFormSections('addPupilGrade', 'addPupilSection');
-    if (userPin) attemptLogin();
+    if (userPin) attemptLogin(); //[cite: 5]
   };
 </script>
 </body>
