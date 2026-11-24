@@ -146,10 +146,14 @@
           <h5 class="fw-bold mb-0 text-primary">
             <i class="fa-solid fa-clock-rotate-left me-2"></i> Local Scan History Log
             <span class="badge bg-primary ms-2" id="scanHistoryCount">0</span>
+            <span class="badge bg-warning text-dark ms-1" id="pendingSyncBadge">Pending Sync: 0</span>
           </h5>
-          <small class="text-muted">Stored locally on this device for successful attendance scans.</small>
+          <small class="text-muted" id="syncStatusText">Confirmed immediately on scan; syncs to Google Sheets in the background with auto-retry.</small>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-outline-primary btn-sm fw-bold px-3" onclick="flushAttendanceQueue(true)">
+            <i class="fa-solid fa-cloud-arrow-up me-1"></i> Sync Now
+          </button>
           <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm" onclick="downloadScanHistoryPdf()">
             <i class="fa-solid fa-file-pdf me-1"></i> Download PDF
           </button>
@@ -472,6 +476,7 @@
 <script>
   const API_URL = "https://script.google.com/macros/s/AKfycbzzptOLasIL2A-3D6DGK_Mr-PQF3i6mSwy8z3N6ml7ZuTeCtpbKzNnFL3nD2Ret3CIj/exec";
   const SCAN_HISTORY_STORAGE_KEY = "sbfp_local_scan_history_v1";
+  const PENDING_QUEUE_STORAGE_KEY = "sbfp_pending_attendance_queue_v1";
 
   const SECTION_MAPPING = {
     "Kindergarten": ["Asul", "Berde", "Dilaw", "Kahel", "Lila", "Pula"],
@@ -491,6 +496,8 @@
   var cachedPupils = [];
   var bmiChart, attChart;
   var dashInterval = null;
+  var queueRetryInterval = null;
+  var isFlushingQueue = false;
   var deferredInstallPrompt = null;
 
   // ==================== BENEFICIARY CACHE FUNCTIONS ====================
@@ -521,6 +528,142 @@
     document.getElementById('pStatus').innerText = pupil.baseBMI;
     document.getElementById('scanResult').classList.remove('d-none');
     document.getElementById('scanStatusMsg').innerText = "";
+  }
+  // =====================================================================
+
+  // ==================== BACKGROUND SYNC & RETRY QUEUE ==================
+  function getPendingAttendanceQueue() {
+    try {
+      const raw = localStorage.getItem(PENDING_QUEUE_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      console.error("Failed to read pending attendance queue:", err);
+      return [];
+    }
+  }
+
+  function savePendingAttendanceQueue(queue) {
+    try {
+      localStorage.setItem(PENDING_QUEUE_STORAGE_KEY, JSON.stringify(queue));
+    } catch (err) {
+      console.error("Failed to save pending attendance queue:", err);
+    }
+    updateQueueSyncUI();
+  }
+
+  function updateQueueSyncUI(customNote = "") {
+    const pendingCount = getPendingAttendanceQueue().length;
+    const badge = document.getElementById("pendingSyncBadge");
+    const statusText = document.getElementById("syncStatusText");
+
+    if (badge) {
+      badge.innerText = `Pending Sync: ${pendingCount}`;
+      if (pendingCount === 0) {
+        badge.className = "badge bg-success ms-1";
+      } else if (isFlushingQueue) {
+        badge.className = "badge bg-info text-dark ms-1";
+      } else {
+        badge.className = "badge bg-warning text-dark ms-1";
+      }
+    }
+
+    if (statusText) {
+      if (customNote) {
+        statusText.innerText = customNote;
+      } else if (isFlushingQueue) {
+        statusText.innerText = `Syncing ${pendingCount} queued scan(s) to Google Sheets in the background...`;
+      } else if (pendingCount > 0) {
+        statusText.innerText = `${pendingCount} scan(s) waiting in retry queue; will retry automatically.`;
+      } else {
+        statusText.innerText = "Confirmed immediately on scan; all scans synced to Google Sheets.";
+      }
+    }
+  }
+
+  function enqueueAttendanceSync(item) {
+    const queue = getPendingAttendanceQueue();
+    queue.push({
+      queueId: item.queueId || ("Q-" + Date.now() + "-" + Math.floor(Math.random() * 100000)),
+      pupilId: item.pupilId,
+      status: item.status,
+      timestamp: item.timestamp,
+      retries: 0,
+      lastError: ""
+    });
+    savePendingAttendanceQueue(queue);
+    flushAttendanceQueue(false);
+  }
+
+  async function flushAttendanceQueue(showManualFeedback = false) {
+    if (!userPin) {
+      updateQueueSyncUI();
+      return;
+    }
+    if (isFlushingQueue) {
+      if (showManualFeedback) {
+        showModalPopup("Sync In Progress", "Background sync is already running.", true);
+      }
+      return;
+    }
+
+    let queue = getPendingAttendanceQueue();
+    if (queue.length === 0) {
+      updateQueueSyncUI();
+      if (showManualFeedback) {
+        showModalPopup("All Synced", "There are no pending scans waiting to sync.", true);
+      }
+      return;
+    }
+
+    isFlushingQueue = true;
+    updateQueueSyncUI();
+    let syncedCount = 0;
+
+    while (queue.length > 0) {
+      const currentItem = queue[0];
+      const res = await apiCall("recordAttendance", {
+        pupilId: currentItem.pupilId,
+        status: currentItem.status
+      });
+
+      if (res && res.success) {
+        queue.shift();
+        syncedCount += 1;
+        savePendingAttendanceQueue(queue);
+      } else {
+        currentItem.retries = (currentItem.retries || 0) + 1;
+        currentItem.lastError = (res && res.message) || "Network/server error";
+        queue[0] = currentItem;
+        savePendingAttendanceQueue(queue);
+        break;
+      }
+    }
+
+    isFlushingQueue = false;
+    const remaining = getPendingAttendanceQueue().length;
+    updateQueueSyncUI(
+      remaining > 0
+        ? `${remaining} scan(s) still queued; retrying automatically every few seconds.`
+        : ""
+    );
+
+    if (showManualFeedback) {
+      if (remaining === 0) {
+        showModalPopup("Sync Complete", `Synced ${syncedCount} queued scan(s) to Google Sheets.`, true);
+      } else {
+        showModalPopup("Partial / Retry Scheduled", `Synced ${syncedCount} scan(s). ${remaining} scan(s) remain queued and will retry automatically.`, false);
+      }
+    }
+  }
+
+  function startQueueRetryLoop() {
+    if (queueRetryInterval) clearInterval(queueRetryInterval);
+    queueRetryInterval = setInterval(() => {
+      if (userPin && getPendingAttendanceQueue().length > 0) {
+        flushAttendanceQueue(false);
+      }
+    }, 6000);
   }
   // =====================================================================
 
@@ -597,12 +740,13 @@
 
     if (isDuplicateSameStatus) {
       renderScanHistoryTable();
-      return;
+      return false;
     }
 
     logs.unshift(entry);
     saveLocalScanHistory(logs);
     renderScanHistoryTable();
+    return true;
   }
 
   function renderScanHistoryTable() {
@@ -612,6 +756,7 @@
 
     const logs = getLocalScanHistory();
     countBadge.innerText = logs.length;
+    updateQueueSyncUI();
 
     if (logs.length === 0) {
       tbody.innerHTML = `
@@ -984,6 +1129,7 @@
         renderScanHistoryTable();
         applyRolePermissions(userRole);
         refreshPupilsCache();
+        flushAttendanceQueue(false);
       } else {
         sessionStorage.clear();
         userPin = "";
@@ -1024,6 +1170,7 @@
       renderScanHistoryTable();
       startScanner();
       stopDashboardAutoRefresh();
+      flushAttendanceQueue(false);
     } else if (tabName === 'dashboard') {
       stopScanner();
       loadDashboard();
@@ -1100,31 +1247,37 @@
     if (!currentPupilId) return;
     const pupilSnapshot = currentScannedPupil;
     const scannedIdSnapshot = currentPupilId;
+    const pupilIdToRecord = (pupilSnapshot && pupilSnapshot.id) ? pupilSnapshot.id : scannedIdSnapshot;
+    const displayName = (pupilSnapshot && pupilSnapshot.name) ? pupilSnapshot.name : scannedIdSnapshot;
+    const ts = getLocalTimestamp();
 
-    document.getElementById('scanStatusMsg').innerText = "Recording attendance...";
-    apiCall("recordAttendance", { pupilId: currentPupilId, status: status }).then(res => {
-      if (res && res.success) {
-        addSuccessfulScanToLog({
-          id: "SCAN-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
-          timestamp: getLocalTimestamp(),
-          pupilId: (pupilSnapshot && pupilSnapshot.id) ? pupilSnapshot.id : scannedIdSnapshot,
-          lrn: (pupilSnapshot && pupilSnapshot.lrn) ? pupilSnapshot.lrn : "",
-          name: res.name || (pupilSnapshot && pupilSnapshot.name) || scannedIdSnapshot,
-          grade: (pupilSnapshot && pupilSnapshot.grade) || "",
-          section: (pupilSnapshot && pupilSnapshot.section) || "",
-          status: status
-        });
-
-        document.getElementById('scanResult').classList.add('d-none');
-        currentPupilId = null;
-        currentScannedPupil = null;
-        document.getElementById('scanStatusMsg').innerText = "";
-        showModalPopup("Attendance Recorded", `Successfully logged ${res.name} as (${status})`, true, { showScanNext: true });
-      } else {
-        showModalPopup("Recording Failed", (res && res.message) || "Could not record attendance.", false);
-        document.getElementById('scanStatusMsg').innerText = "";
-      }
+    addSuccessfulScanToLog({
+      id: "SCAN-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      timestamp: ts,
+      pupilId: pupilIdToRecord,
+      lrn: (pupilSnapshot && pupilSnapshot.lrn) ? pupilSnapshot.lrn : "",
+      name: displayName,
+      grade: (pupilSnapshot && pupilSnapshot.grade) || "",
+      section: (pupilSnapshot && pupilSnapshot.section) || "",
+      status: status
     });
+
+    enqueueAttendanceSync({
+      pupilId: pupilIdToRecord,
+      status: status,
+      timestamp: ts
+    });
+
+    document.getElementById('scanResult').classList.add('d-none');
+    currentPupilId = null;
+    currentScannedPupil = null;
+    document.getElementById('scanStatusMsg').innerText = "";
+    showModalPopup(
+      "Attendance Confirmed",
+      `Logged ${displayName} as (${status}). Syncing to Google Sheets in background...`,
+      true,
+      { showScanNext: true }
+    );
   }
 
   document.getElementById('beneficiaryForm').addEventListener('submit', function(e) {
@@ -1270,9 +1423,16 @@
     });
   }
 
+  window.addEventListener('online', function() {
+    if (userPin && getPendingAttendanceQueue().length > 0) {
+      flushAttendanceQueue(false);
+    }
+  });
+
   window.onload = function() {
     initDynamicPwaAssets();
     renderScanHistoryTable();
+    startQueueRetryLoop();
     var today = getLocalTodayDate();
     document.getElementById('dashStartDate').value = today;
     document.getElementById('dashEndDate').value = today;
