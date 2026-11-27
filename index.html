@@ -485,7 +485,7 @@
     "Grade 3": ["Mt. Apo", "Mt. Arayat", "Mt. Banahaw", "Mt. Makiling", "Mt. Pulag"],
     "Grade 4": ["Dinagyang", "Moriones", "Pahiyas", "Panagbenga"],
     "Grade 5": ["A. Bonifacio", "A. Mabini", "J. Rizal", "M. Del Pilar"],
-    "Grade 6": ["Aquino", "Duterte", "Marcos"]
+    "Grade 6": ["Aquino", "Arroyo", "Duterte", "Marcos"]
   };
 
   var userPin = sessionStorage.getItem("sbfp_user_pin") || "";
@@ -730,17 +730,17 @@
     const logs = getLocalScanHistory();
     const newDateKey = getEntryDateKey(entry);
     const newLearnerKey = getEntryLearnerKey(entry);
-    const newStatusKey = normalizeStatusKey(entry.status);
 
-    const isDuplicateSameStatus = logs.some(existing =>
+    const existingIdx = logs.findIndex(existing =>
       getEntryDateKey(existing) === newDateKey &&
-      getEntryLearnerKey(existing) === newLearnerKey &&
-      normalizeStatusKey(existing.status) === newStatusKey
+      getEntryLearnerKey(existing) === newLearnerKey
     );
 
-    if (isDuplicateSameStatus) {
+    if (existingIdx !== -1) {
+      logs[existingIdx] = entry;
+      saveLocalScanHistory(logs);
       renderScanHistoryTable();
-      return false;
+      return true;
     }
 
     logs.unshift(entry);
@@ -977,7 +977,7 @@
       Object.keys(SECTION_MAPPING).forEach(grade => {
         SECTION_MAPPING[grade].forEach(sec => {
           var opt = document.createElement('option');
-          opt.value = sec;
+          opt.value = grade + "|||" + sec;
           opt.textContent = sec + " (" + grade + ")";
           sectionSelect.appendChild(opt);
         });
@@ -1386,6 +1386,11 @@
   function loadDashboard() {
     var grade = document.getElementById('dashGradeFilter').value;
     var section = document.getElementById('dashSectionFilter').value;
+    if (section && section.indexOf("|||") !== -1) {
+      var parts = section.split("|||");
+      if (grade === "All") grade = parts[0];
+      section = parts[1];
+    }
     var startDate = document.getElementById('dashStartDate').value || getLocalTodayDate();
     var endDate = document.getElementById('dashEndDate').value || getLocalTodayDate();
 
@@ -1401,11 +1406,11 @@
       bmiChart = new Chart(document.getElementById('chartBmiProgression'), {
         type: 'bar',
         data: {
-          labels: ['Severely Wasted', 'Wasted', 'Normal', 'Overweight', 'Obese'],
+          labels: ['Severely Wasted', 'Wasted', 'Normal', 'Overweight', 'Obese', 'Unassessed'],
           datasets: [
-            { label: 'Baseline', data: [bmiProg.Baseline["Severely Wasted"], bmiProg.Baseline["Wasted"], bmiProg.Baseline["Normal"], bmiProg.Baseline["Overweight"], bmiProg.Baseline["Obese"]], backgroundColor: '#ef4444' },
-            { label: 'Midline', data: [bmiProg.Midline["Severely Wasted"], bmiProg.Midline["Wasted"], bmiProg.Midline["Normal"], bmiProg.Midline["Overweight"], bmiProg.Midline["Obese"]], backgroundColor: '#f59e0b' },
-            { label: 'Endline', data: [bmiProg.Endline["Severely Wasted"], bmiProg.Endline["Wasted"], bmiProg.Endline["Normal"], bmiProg.Endline["Overweight"], bmiProg.Endline["Obese"]], backgroundColor: '#10b981' }
+            { label: 'Baseline', data: [bmiProg.Baseline["Severely Wasted"], bmiProg.Baseline["Wasted"], bmiProg.Baseline["Normal"], bmiProg.Baseline["Overweight"], bmiProg.Baseline["Obese"], bmiProg.Baseline["Unassessed"] || 0], backgroundColor: '#ef4444' },
+            { label: 'Midline', data: [bmiProg.Midline["Severely Wasted"], bmiProg.Midline["Wasted"], bmiProg.Midline["Normal"], bmiProg.Midline["Overweight"], bmiProg.Midline["Obese"], bmiProg.Midline["Unassessed"] || 0], backgroundColor: '#f59e0b' },
+            { label: 'Endline', data: [bmiProg.Endline["Severely Wasted"], bmiProg.Endline["Wasted"], bmiProg.Endline["Normal"], bmiProg.Endline["Overweight"], bmiProg.Endline["Obese"], bmiProg.Endline["Unassessed"] || 0], backgroundColor: '#10b981' }
           ]
         },
         options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
