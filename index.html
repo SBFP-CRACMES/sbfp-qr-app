@@ -154,6 +154,9 @@
           <button class="btn btn-outline-primary btn-sm fw-bold px-3" onclick="flushAttendanceQueue(true)">
             <i class="fa-solid fa-cloud-arrow-up me-1"></i> Sync Now
           </button>
+          <button class="btn btn-outline-success btn-sm fw-bold px-3" onclick="resyncAllLocalHistory()">
+            <i class="fa-solid fa-arrows-rotate me-1"></i> Re-Sync All Local Logs
+          </button>
           <button class="btn btn-danger btn-sm fw-bold px-3 shadow-sm" onclick="downloadScanHistoryPdf()">
             <i class="fa-solid fa-file-pdf me-1"></i> Download PDF
           </button>
@@ -618,44 +621,65 @@
 
     isFlushingQueue = true;
     updateQueueSyncUI();
-    let syncedCount = 0;
 
-    while (queue.length > 0) {
-      const currentItem = queue[0];
-      const res = await apiCall("recordAttendance", {
-        pupilId: currentItem.pupilId,
-        status: currentItem.status
-      });
+    const batchItems = queue.map(item => ({
+      pupilId: item.pupilId,
+      status: item.status,
+      timestamp: item.timestamp
+    }));
 
-      if (res && res.success) {
-        queue.shift();
-        syncedCount += 1;
-        savePendingAttendanceQueue(queue);
-      } else {
-        currentItem.retries = (currentItem.retries || 0) + 1;
-        currentItem.lastError = (res && res.message) || "Network/server error";
-        queue[0] = currentItem;
-        savePendingAttendanceQueue(queue);
-        break;
+    const res = await apiCall("recordAttendanceBatch", { items: batchItems });
+
+    if (res && res.success) {
+      savePendingAttendanceQueue([]);
+      isFlushingQueue = false;
+      updateQueueSyncUI();
+      if (showManualFeedback) {
+        showModalPopup("Sync Complete", `Synced ${res.syncedCount || batchItems.length} scan(s) to Google Sheets.`, true);
       }
-    }
-
-    isFlushingQueue = false;
-    const remaining = getPendingAttendanceQueue().length;
-    updateQueueSyncUI(
-      remaining > 0
-        ? `${remaining} scan(s) still queued; retrying automatically every few seconds.`
-        : ""
-    );
-
-    if (showManualFeedback) {
-      if (remaining === 0) {
-        showModalPopup("Sync Complete", `Synced ${syncedCount} queued scan(s) to Google Sheets.`, true);
-      } else {
-        showModalPopup("Partial / Retry Scheduled", `Synced ${syncedCount} scan(s). ${remaining} scan(s) remain queued and will retry automatically.`, false);
+    } else {
+      queue = queue.map(item => ({
+        ...item,
+        retries: (item.retries || 0) + 1,
+        lastError: (res && res.message) || "Network/server error"
+      }));
+      savePendingAttendanceQueue(queue);
+      isFlushingQueue = false;
+      updateQueueSyncUI(`${queue.length} scan(s) still queued; retrying automatically...`);
+      if (showManualFeedback) {
+        showModalPopup("Sync Retry Scheduled", (res && res.message) || "Could not reach server. Will retry automatically.", false);
       }
     }
   }
+
+  function resyncAllLocalHistory() {
+    const logs = getLocalScanHistory();
+    if (logs.length === 0) {
+      showModalPopup("No Local Logs", "There are no local scan records to re-sync.", false);
+      return;
+    }
+    const queue = getPendingAttendanceQueue();
+    const orderedLogs = [...logs].reverse();
+    orderedLogs.forEach(entry => {
+      queue.push({
+        queueId: "RESYNC-" + Date.now() + "-" + Math.floor(Math.random() * 100000),
+        pupilId: entry.pupilId,
+        status: entry.status,
+        timestamp: entry.timestamp,
+        retries: 0,
+        lastError: ""
+      });
+    });
+    savePendingAttendanceQueue(queue);
+    flushAttendanceQueue(true);
+  }
+
+  window.addEventListener("beforeunload", function (e) {
+    if (getPendingAttendanceQueue().length > 0) {
+      e.preventDefault();
+      e.returnValue = "You have unsynced attendance scans. Wait for sync to finish before closing.";
+    }
+  });
 
   function startQueueRetryLoop() {
     if (queueRetryInterval) clearInterval(queueRetryInterval);
